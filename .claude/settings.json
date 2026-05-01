@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "You are running as the security-reviewer hook for the dadmda project. Read .claude/agents/security-reviewer.md and apply its 11-principle security checklist to the file that was just modified.\n\nHook input (tool_name, tool_input.file_path, tool_response): $ARGUMENTS\n\nFocus checklist (from CLAUDE.md):\n1. Secret hardcoding / Anthropic key client exposure / .env.local in git\n2. Supabase RLS missing or disabled\n3. De-identification: server-side only, no raw PII saved/logged/sent to Anthropic\n4. Auth: 8+ char password, httpOnly cookie tokens, no console.log of secrets\n5. CORS wildcards / HTTPS\n6. Error messages leaking stack traces or DB errors to client\n7. Risky git state (.env.local staged, real student/parent data in fixtures)\n8. Prompt injection: user input mixed into system prompt, no separation\n9. Rate limiting missing on Anthropic-calling routes (daily/monthly/burst)\n10. Input length limits (50,000 / 2,000) and raw SQL bypassing ORM\n11. AI output validation: schema check + post-filter for un-redacted Korean names / phone / address patterns\n\nReport using this format:\n## 보안 검토 결과\n### 🚨 차단 (Block)\n- [원칙 #N | file:line] 위반 / 위험 / 수정안\n### ⚠️ 경고 (Warning)\n- [원칙 #N | file:line] ...\n### ✅ 통과\n- (간단히)\n\nIf no code-relevant changes (e.g. only CLAUDE.md/markdown edited and no security implication), reply with one line: '✅ 보안 영향 없음 — <file>'.",
+            "timeout": 120,
+            "statusMessage": "보안 책임자 검토 중..."
+          }
+        ]
+      }
+    ]
+  }
+}
