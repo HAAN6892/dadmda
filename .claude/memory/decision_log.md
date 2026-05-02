@@ -212,3 +212,35 @@
 - supabase db push로 원격 DB에 적용
 - 페르소나 추출 / 메시지 다듬기 본 기능 작업
 - /api/test/anthropic 임시 라우트 삭제 (다음 작업 시작 시점)
+
+---
+
+## 2026-05-02: personas 테이블 마이그레이션
+
+### 결정
+- 1주차 테이블 1개만 생성: personas. students 테이블은 미래 확장 시 분리
+- 학생 그룹핑은 student_label TEXT 컬럼으로 처리 (1주차 단순화)
+- relationship_type 컬럼 포함 (1주차 'parent' 고정, 미래 colleague/external 확장 대비)
+- traits 컬럼은 jsonb (구조 자유도 확보, 스키마는 추출 프롬프트 단계에서 확정)
+- anonymized_conversation 단일 컬럼 누적 방식 (1주차 단순화. 길어지면 별도 테이블로 분리 검토)
+- Soft delete (deleted_at). RLS에서 자동 필터로 삭제된 행 비공개
+- RLS 정책 4개 (SELECT/INSERT/UPDATE/DELETE) 모두 auth.uid() = user_id 기준
+- updated_at 자동 갱신 트리거 (set_updated_at 함수, 미래 다른 테이블도 재사용 가능)
+- DB 코멘트로 컬럼별 의도 자체 문서화
+
+### 진행 중 발견 사항
+- docs 작성 시 4단계 검증 안내의 컬럼 카운팅 표기에 오타(9개로 적음) 발견. 실제 SQL은 11개로 정확. Dashboard 검증은 11개 기준으로 진행함.
+- supabase db push 시점에도 비번 프롬프트 미출현. supabase link 때와 동일하게 access token으로 충분. CLI 2.95.4 기준 migration apply도 token 기반 인증 처리. Database password는 CLI 외 직접 DB 접속(예: psql) 시에만 필요.
+
+### 이유
+- 1주차는 메인 흐름(임포트 → 페르소나 → 메시지 다듬기) 검증이 핵심. 테이블 분리는 검증 후
+- student_label 컬럼은 텍스트로 두면 미래에 students 테이블 분리 시 마이그레이션 단순 (컬럼 → FK)
+- jsonb는 페르소나 특징 구조가 사용자 데이터 보면서 진화할 수 있어서. 컬럼 분리는 구조 확정 후
+- soft delete는 학부모 정보라는 민감 데이터 특성상 실수 복구 가능성 우선
+- DB 코멘트는 미래의 너/협업자가 컬럼 의도 즉시 파악 가능
+
+### 다음 단계
+- 페르소나 추출 API Route + rate limiter (정책 #9 도입 시점, Anthropic API 본격 사용)
+- 페르소나 추출 프롬프트 작성 (비식별화 + 페르소나 추출 동시 처리)
+- 페르소나 만들기 화면 UI
+- /api/test/anthropic 임시 라우트 삭제
