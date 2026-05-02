@@ -73,3 +73,54 @@
 **보안 정책 영향**
 - 정책 #12 조항 5("모든 인증 필요 페이지의 RSC 최상단에 인증 체크")는 **RSC 한정 조항**. API Route는 그 적용 대상 외. API Route는 본 결정문 + 신규 체크리스트 항목으로 별도 관리.
 - 정책 #2(데이터 격리, RLS)는 계속 유효 — RLS가 `user_id = auth.uid()`를 강제하므로 API에서 인증 누락 시에도 DB 레벨 방어선이 남음. 단 API에서 401 안 내면 빈 결과/에러로 사용자 경험만 깨짐.
+
+---
+
+## 2026-05-02 — 인증을 OTP에서 Magic Link로 전환
+
+**결정**
+1주차 인증 흐름을 6자리 OTP 코드 입력에서 **Magic Link 클릭 방식**으로 전환한다. 사용자는 이메일 입력 → 발송된 메일의 링크 클릭 → `/auth/callback`에서 PKCE 코드 교환 → 홈으로 진입.
+
+**배경**
+- Supabase 무료 SMTP가 custom OTP 이메일 템플릿을 일관되게 적용하지 못하는 알려진 버그 발견 — 일부 발송분이 기본 Magic Link 템플릿으로 fallback.
+- 우회책으로 Resend custom SMTP를 시도했으나 `onboarding@resend.dev` 발신 불가, 자체 도메인 등록·DNS 레코드 검증이 의무.
+- 도메인 구매·DNS 셋업은 1주차 검증 단계 우선순위 밖 → anti-drift 패턴(스코프 확장) 회피.
+- Supabase 기본 Magic Link 템플릿은 안정적 — 흐름 단순화 + UI 한 단계 제거 부수 효과.
+
+**변경 사항**
+- `src/app/api/auth/send-otp/route.ts`: `signInWithOtp` 옵션에 `emailRedirectTo: ${origin}/auth/callback` 추가. 핸들러 이름·경로는 유지(미래 OTP 복귀 시 재사용 비용 0).
+- `src/app/auth/callback/route.ts` 신규: `GET` 핸들러, `code` 파라미터 검증(비어있지 않음 + 512자 이하), `exchangeCodeForSession` 호출, 성공 시 `/`로, 실패 시 `/login?error=expired|invalid_code`로 리다이렉트.
+- `src/app/(public)/login/page.tsx`: 토큰 입력 단계(`stage="token"`) 제거, 발송 안내 단계(`stage="sent"`) 추가. URL `?error=...`도 클라이언트에서 읽어 안내.
+- `src/lib/supabase/middleware.ts`: `PUBLIC_PATHS = ["/login", "/auth"]`의 `startsWith("/auth")`가 `/auth/callback`을 자동 커버 → 변경 불필요.
+
+**보존 (의도적 미수정)**
+- `src/app/api/auth/verify-otp/route.ts` — 미래 OTP 흐름 복귀 시 재활용 위해 그대로 둔다. 1주차 종료 후 도메인 구매·SMTP 정식 셋업 시점에 다시 살림.
+
+**미래 재검토 시점**
+- 자체 도메인 구매 + Resend/AWS SES SMTP 검증 완료 시점.
+- 그때 OTP 흐름으로 복귀 검토 (코드 입력 UX가 새 탭 전환 없이 같은 창에서 끝나는 장점이 있음).
+- 복귀 비용: send-otp의 `emailRedirectTo` 옵션 제거 + `/login/page.tsx`에서 `stage="token"` 분기 복구 + `/auth/callback` 라우트 비활성화 또는 삭제. 모두 작은 변경.
+
+---
+
+## 2026-05-02 — Magic Link 전환 되돌리기, OTP 흐름 유지 (같은 날 재결정)
+
+**결정**
+직전 결정(Magic Link 전환)을 같은 날 되돌린다. 1주차 인증 흐름은 OTP 6자리 입력 방식으로 최종 확정.
+
+**배경**
+- 직전 결정의 전제(Supabase 무료 SMTP가 한국어 OTP 템플릿을 일관되게 적용 못함)를 실측으로 재검증한 결과 — 테스트 시점에 우리 한국어 OTP 템플릿이 정상 적용됨. 메일에 6자리 숫자만 도착, Magic Link 본문 fallback 없음.
+- 즉 Magic Link 전환은 임시 회피책이었고, 원래 의도(OTP)가 동작하므로 복귀.
+
+**되돌리는 변경**
+- `src/app/(public)/login/page.tsx`: `stage="sent"` 제거, `stage="token"` 분기 복원 (b128274 시점 동등 형태). `useEffect`로 URL `?error=...` 읽던 로직도 제거 (콜백 라우트 부재로 의미 없음).
+- `src/app/api/auth/send-otp/route.ts`: `emailRedirectTo` 옵션 제거. `signInWithOtp` 옵션은 `shouldCreateUser: true`만 남음.
+- `src/app/auth/callback/route.ts`: **삭제** (YAGNI). 미래 Magic Link 복귀 시 재작성. 빈 `src/app/auth/` 디렉터리도 함께 제거.
+
+**잔존 트레이드오프**
+- Supabase 무료 SMTP의 알려진 일관성 문제로 일부 사용자가 우연히 Magic Link 템플릿을 받는 케이스 잔존 가능성 — 발견 시 도메인 구매 + Resend/AWS SES 정식 셋업으로 해결 (1주차 후순위).
+- Magic Link fallback 발생 시 사용자는 메일에서 받은 링크를 클릭해도 `/auth/callback`이 없어 404 또는 Supabase 기본 redirect URL로 가게 됨. 1주차 검증 단계에서 이 케이스가 실측으로 잡히면 그때 다시 Magic Link 흐름 복원 결정.
+
+**메타 — 같은 날 두 번 뒤집은 결정에서 배운 것**
+- 인프라 회피책(Magic Link 전환)을 적용하기 전, **현장 메일 한 번 더 보내 실측**해야 했다. SMTP fallback 버그가 *항상* 발생한다는 가정이 틀렸다.
+- 다음에 비슷한 SMTP/외부 인프라 이슈 만나면: ① 1차 회피책 코드 작성 전, ② 같은 환경에서 5~10건 샘플 측정해 일관성 패턴 파악, ③ 그 후 회피책 채택 결정.
