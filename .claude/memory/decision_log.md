@@ -150,3 +150,35 @@
 - 브랜드 컬러는 흔들림 패턴(스코프 확장) 회피 위해 보류
 - 로그인 분리는 "한 PR에 한 가지 일" 원칙
 - vulnerability 분리도 같은 원칙 (셋업 커밋과 의존성 보안 처리는 별개 단위)
+
+---
+
+## 2026-05-02: Anthropic SDK 셋업
+
+### 결정
+- @anthropic-ai/sdk 도입 (공식 SDK, fetch 직접 호출 안 함)
+- API 클라이언트는 싱글톤 패턴, src/lib/anthropic/client.ts에 위치
+- 환경변수 ANTHROPIC_API_KEY는 서버 사이드 전용 (NEXT_PUBLIC_ prefix X, 정책 #12 준수)
+- .env.local.example 신규 생성 (협업/배포용 템플릿, SUPABASE_SERVICE_ROLE_KEY는 미사용으로 제외)
+- src/types/env.d.ts에서 환경변수 타입 정의 (3개 변수: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, ANTHROPIC_API_KEY)
+- Connection test용 /api/test/anthropic GET route는 검증 후 다음 작업 시작 시점에 삭제 예정 (임시)
+- Connection test 모델: claude-haiku-4-5-20251001 (Haiku 4.5)
+- 콘솔 spending limit 월 $20 설정됨 (rate limiter 코드 도입 전 안전장치)
+- 페르소나 추출 / 메시지 다듬기 본 기능에 사용할 모델은 별도 결정점에서 선택 (Haiku vs Sonnet, 다음 작업)
+
+### 진행 중 발견 사항
+- 1단계에서 .env.local 변수명 확인 시 Grep 도구의 output_mode 설정 실수로 값까지 출력되는 사고 발생. 다행히 NEXT_PUBLIC_ 변수(클라이언트 노출 허용)만 값이 있었고 SERVICE_ROLE_KEY/ANTHROPIC_API_KEY는 빈 슬롯이라 실질 피해 없음. 이후 보안 원칙 강화: .env.local은 4단계 이후 절대 Read/Grep 금지, 변수명만 확보 후 더 이상 접근 안 함.
+- 5단계 connection test 첫 호출에서 404 not_found_error 발생. 원인은 docs에 박은 모델명 claude-3-5-haiku-20241022가 deprecated/retired된 ID였음. 현재 정식 Haiku ID는 claude-haiku-4-5-20251001 (Haiku 4.5)로 정정. 키 인증은 정상 통과 → 인프라 코드 모두 정상 동작 확인.
+- 보고 정확성 강화 원칙 도입: 파일 인용은 100% 파일에서 직접 복사, 손으로 다시 타이핑 금지.
+
+### 이유
+- SDK 사용이 fetch보다 타입 안전성 + 에러 핸들링 + 향후 streaming 등 기능 확장 유리
+- 싱글톤은 매 요청마다 클라이언트 새로 만드는 비용 회피
+- 임시 test route는 인프라 검증을 빠르게 하기 위함, 본 기능 구현 시 정식 route로 대체
+
+### 다음 단계
+- DB 스키마 (personas, messages 테이블 + RLS)
+- 페르소나 추출 API Route + rate limiter (정책 #9, Anthropic API 본격 사용 시점에 도입)
+- 페르소나 추출 프롬프트 작성
+- 페르소나 만들기 화면 UI
+- 본 기능에 사용할 모델 결정 (Haiku 4.5 vs Sonnet 4.6, 비용/품질 트레이드오프)
