@@ -1,7 +1,7 @@
-# 다듬다 프로젝트 핸드오프 (2026-05-02 23시 시점)
+# 다듬다 프로젝트 핸드오프 (2026-05-03 새벽 시점)
 
 > 새 claude.ai 채팅에 이 파일 통째로 첨부하거나 복붙해서 시작.
-> 이전 핸드오프(2026-05-02 시작 시점) 내용을 누적해서 갱신한 버전.
+> 이전 핸드오프(2026-05-02 23시 시점) 내용을 누적해서 갱신한 버전.
 
 ---
 
@@ -62,12 +62,13 @@
 
 ---
 
-## 2. 기술 스택 (오늘 셋업 완료)
+## 2. 기술 스택 (Upstash 추가)
 
 - Next.js 14 (App Router) + TypeScript + Tailwind 3.4
 - **shadcn/ui** (new-york + stone, 9개 컴포넌트 + sonner)
 - **Anthropic SDK** (`@anthropic-ai/sdk@^0.92.0`, 키 발급 완료)
 - **Supabase** (Seoul) + **Supabase CLI 2.95.4** (Scoop 설치, link 완료)
+- **Upstash Redis** (`@upstash/ratelimit` + `@upstash/redis`, Tokyo 리전, rate limiter 전용)
 - Vercel 배포 예정 (1주차 후반)
 - GitHub: HAAN6892/dadmda (private)
 - 로컬 작업 폴더: `C:\Users\jj689\projects\dadmda`
@@ -99,7 +100,7 @@
 
 ---
 
-## 5. 오늘 (2026-05-02) 완료한 작업 4개
+## 5. 오늘 (~2026-05-03 새벽) 완료한 작업 6개
 
 | # | 작업 | 커밋 | 핵심 |
 |---|---|---|---|
@@ -107,10 +108,12 @@
 | 2 | Anthropic SDK + env | `46fd2fc` | SDK 설치, 클라이언트 유틸, connection test 통과 |
 | 3 | Supabase CLI 셋업 | `e7df274` | Scoop 설치, CLI 2.95.4, 원격 link 완료 |
 | 4 | personas 테이블 | `2bf0115` | 컬럼 11개 + RLS 4개 + 트리거 1개, 원격 적용 완료 |
+| 5 | connection test 라우트 제거 (작업 A) | `77965ed` | `/api/test/anthropic` 삭제, 임시 코드 청소 |
+| 6 | 페르소나 추출 API Route 골격 + rate limiter (작업 B) | `5b95f7a` | POST stub, 인증 가드 + rate limit + 입력 검증, Upstash 도입, 정책 #9 활성화 |
 
-전부 push 완료. origin/main 동기화됨.
+작업 A/B docs는 별도 커밋(`83970d6`)으로 분리. 작업 A/B/docs 커밋(77965ed, 5b95f7a, 83970d6)까지 모두 push 완료. origin/main이 83970d6까지 동기화됨.
 
-API 비용: 약 $0.00008 (connection test 1회). $20 한도 거의 그대로.
+API 비용 누적: 약 $0.00008 (connection test 1회). $20 한도 거의 그대로. 작업 B 단계에서는 Anthropic 호출 없음 (stub).
 
 ---
 
@@ -160,27 +163,37 @@ API 비용: 약 $0.00008 (connection test 1회). $20 한도 거의 그대로.
 - 새 대화 임포트 시 페르소나 갱신 가능
 - 마음에 안 들면 다시 추출 (덮어쓰기, UI에서 경고)
 
+### Rate limiter (작업 B에서 추가)
+- 위치: `src/lib/ratelimit.ts` (Upstash Redis 기반)
+- 제한값: 10 req / 1분 / 사용자, sliding window
+- 키 단위: `user.id`, prefix `@dadmda/ratelimit`
+- analytics: true (Upstash 콘솔에서 사용 패턴 관찰)
+- 적용 라우트: `src/app/api/personas/extract/route.ts` (1주차 첫 적용처)
+
 ---
 
 ## 7. 새 세션 시작 시 첫 작업
 
-### 다음 작업 단위 (옵션 B 선택됨, 1시간 예상)
+### 다음 작업 단위 — 페르소나 추출 본 로직 구현
 
-**작업 A**: `/api/test/anthropic` 임시 라우트 삭제
-- 인프라 검증 끝났으니 임시 라우트 정리
-- 매우 짧음 (5~10분)
+작업 B에서 골격(인증 + rate limit + 입력 검증 + stub)까지 완료. 다음은 stub 자리를 실제 로직으로 채우는 일.
 
-**작업 B**: 페르소나 추출 API Route 골격 + rate limiter
-- API Route 작성 (`src/app/api/personas/extract/route.ts` 가제)
-- **Rate limiter 도입 (정책 #9)**. Anthropic API 본격 사용 시점이라 콘솔 한도 외 코드 차원 안전장치 필요
-- 페르소나 추출 로직 자체(프롬프트 + 비식별화)는 다음 세션 작업으로 분리
-- 골격 + 인증 가드 + rate limiter + 에러 핸들링까지
+구체 항목:
+
+1. **페르소나 추출 프롬프트 설계** (Anthropic API 호출용 시스템 프롬프트 + 입출력 형식 정의)
+2. **비식별화 로직 통합** — 가림: 학생/학부모 본명, 전화번호, 주소, 병원/병명, 다른 학생; 보존: 날짜/시간, 학교/학년/반, 톤/감정. 추출과 단일 호출에서 동시 처리
+3. **DB 저장** — `personas` 테이블 INSERT (RLS는 이미 `auth.uid() = user_id` 강제)
+4. **stub 응답 → 실제 추출 결과로 교체** — 응답 형식을 `{ success: true, data: {...} }`로 다른 라우트와 통일 (decision_log 결정 4)
+5. **conversation 입력 검증 강화** — `trim().length >= N` 형태로 (decision_log 결정 5)
+6. **모델 선택 결정** — Haiku 4.5 vs Sonnet 4.6 (비용/품질 트레이드오프, 결정 누적 필요)
+
+위 작업은 한 세션에 다 들어가지 않을 가능성이 큼. claude.ai에서 작업 단위 분할 결정이 첫 번째 단계.
 
 ### 새 세션의 첫 응답 (claude.ai)
 
 1. 핸드오프 이해 확인 한 줄
-2. **`/api/test/anthropic` 삭제 작업 docs 작성** → present_files
-3. 사용자 컨펌 받으면 그 다음 API Route + rate limiter docs 작성
+2. 위 6개 항목 중 첫 단위 작업 docs 작성 → present_files
+3. 사용자 컨펌 후 Claude Code 실행 지시
 
 ---
 
@@ -190,6 +203,7 @@ API 비용: 약 $0.00008 (connection test 1회). $20 한도 거의 그대로.
 - Supabase URL/anon key: `.env.local`에 설정됨
 - **Anthropic API 키**: 발급 완료, `.env.local`에 박힘 (사용자가 직접 박았고 Claude Code 컨텍스트에 노출 안 됨)
 - Anthropic 콘솔 spending limit: 월 $20
+- **Upstash Redis (작업 B에서 추가)**: DB 이름 `dadmda-ratelimit`, Tokyo 리전, Free Tier (10K command/day), TLS Enabled. `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` 두 키가 `.env.local`에 박힘 (사용자가 직접). Claude Code는 값 자체에 접근 안 함
 - Database password: 사용자가 reset 후 안전한 곳에 보관 (Claude Code/채팅에 노출 안 됨)
 - GitHub: `HAAN6892/dadmda` (private)
 - Supabase CLI: Scoop으로 설치, 원격 link 완료, access token으로 모든 작업 가능 (비번 미요구 케이스 다수 확인)
@@ -202,8 +216,8 @@ API 비용: 약 $0.00008 (connection test 1회). $20 한도 거의 그대로.
 - `feedback_workflow.md` — 단계별 보고·확인 워크플로
 - `anti_drift_patterns.md` — 흔들림 패턴 6가지
 - `security_policy_checklist.md` — 보안 정책 #12 자동 점검
-- `decision_log.md` — **모든 의사결정 흐름 (오늘 4개 작업 결정 모두 누적됨)**
-- `session_handoff.md` — 이전 세션 종료 시점 (이 핸드오프 작성 후 갱신 예정)
+- `decision_log.md` — **모든 의사결정 흐름 (작업 A/B 결정 7개 통합 엔트리 추가됨)**
+- `session_handoff.md` — 이전 세션 종료 시점 (이 핸드오프)
 - `workflow.md` — docs/ 폴더 기반 워크플로
 
 ---
@@ -222,9 +236,9 @@ npm run dev
 
 ### 미리 준비하면 좋을 것 (선택)
 
-다음 세션에서 페르소나 추출 본 작업 들어갈 때 필요한 것:
+다음 세션에서 페르소나 추출 본 로직 들어갈 때 필요한 것:
 
-- **배우자한테 받아둘 수 있으면**: 학부모 메신저 대화 샘플 1개 (실제 대화 또는 비슷한 가상 시나리오). 페르소나 추출 프롬프트 검증할 때 필요. 다음 세션 작업에서 즉시 필요한 건 아님.
+- **배우자한테 받아둘 수 있으면**: 학부모 메신저 대화 샘플 1개 (실제 또는 비슷한 가상 시나리오). 페르소나 추출 프롬프트 검증할 때 즉시 필요. 없으면 claude.ai에서 가상 샘플 만들어서 진행 가능
 
 ---
 
@@ -240,29 +254,43 @@ npm run dev
 - supabase link, db push, migration list 모두 access token 기반 인증으로 비번 미요구
 - Database password는 CLI 외 직접 접속(psql 등) 시에만 필요
 
-### Claude Code 보안 사고 사례 (오늘 발견)
+### Claude Code 보안 사고 사례 (이전 세션 발견)
 - 1단계 .env.local Grep 시 값까지 출력된 사고 → 자진 신고 → 보안 원칙 강화 (4단계 이후 .env.local 절대 Read/Grep 금지)
 - 5단계 connection test 모델명 오타(`claude-3-5-haiku-20241022`) → 실제 정식 ID는 `claude-haiku-4-5-20251001` (Haiku 4.5)
 - 보고 정확성 강화: 파일 인용은 100% 파일에서 직접 복사
 
+### 좀비 프로세스 패턴 (이번 세션 학습)
+- **현상**: dev 서버 띄울 때 `Port 3000 is in use, trying 3001 instead` 메시지 + 의도치 않은 포트(3001/3002 등)에서 실행. 브라우저로 3000번 접속하면 좀비 서버가 응답해서 500 에러 등 이상 동작
+- **진단**: `netstat -ano | findstr :3000` 으로 LISTENING 줄의 PID 확인
+- **해결**: `taskkill /PID <번호> /F`로 강제 종료
+- **예방**: 세션 종료 시 dev 서버 Ctrl+C로 정리. 시스템 재시작 안 한 상태에서 이전 세션 잔재 의심
+- **표준 점검**: 매 세션 첫 dev 서버 부팅 시 출력에서 `Local: http://localhost:3000` 확인. `trying 3001 instead` 보이면 즉시 점검
+
+### PowerShell 클립보드 사고 패턴 (이번 세션 학습)
+- **현상**: API 테스트 시 인증 쿠키를 클립보드에 담아두고 Claude Code 명령을 복사하는 순간 쿠키 클립보드가 덮어씌워짐. `Get-Clipboard`가 PowerShell 명령어 자체를 가져와서 변수에 박힘
+- **회피 방법**:
+  - PowerShell 명령은 직접 타이핑 또는 메모장(Notepad) 경유 복사
+  - DevTools에서 쿠키 셀 더블클릭 후 셀 안에서만 `Ctrl+A`로 선택 (전체 페이지 선택 회피)
+- **다음 세션 영향**: 수동 API 테스트가 필요해질 시점에 이 사고 다시 발생 가능. **Thunder Client (VS Code 확장) 도입 검토** 필요. GUI 도구가 클립보드 의존 없이 헤더·쿠키·반복 호출까지 한 곳에서 처리
+
 ### 사용 모델 (현재)
-- Connection test: `claude-haiku-4-5-20251001` (Haiku 4.5, 가장 저렴)
+- Connection test (이미 라우트 삭제됨, 작업 A): `claude-haiku-4-5-20251001` (Haiku 4.5)
 - 페르소나 추출 / 메시지 다듬기 본 기능: 다음 세션에서 결정 (Haiku 4.5 vs Sonnet 4.6, 비용/품질 트레이드오프)
 
 ---
 
-## 12. 임시 코드 (다음 세션에서 정리)
+## 12. 임시 코드 (다음 세션 정리 대상)
 
 ### 삭제 예정 파일
-- `src/app/api/test/anthropic/route.ts` — connection test용 임시 라우트
-  - 1행에 "임시: connection test 전용. 페르소나 기능 작업 시작 시 삭제 예정." 주석 박혀있음
-  - 다음 세션 첫 작업이 이거 삭제
+- 없음 — 이전 세션의 `src/app/api/test/anthropic/route.ts`는 작업 A로 제거 완료(`77965ed`). 현재 임시 라우트 잔재 없음
 
-### 추가 예정 작업 (별도 docs로 분리됨)
+### 추가 예정 작업 (별도 docs로 분리됨, 변동 없음)
 - `docs/2026-05-DD-login-shadcn-migration.md` — 로그인 페이지 native input/button을 shadcn으로 마이그레이션
-- `docs/2026-05-DD-npm-audit-followup.md` — npm vulnerability 5건 (1 moderate, 4 high) 후속 처리
+- `docs/2026-05-DD-npm-audit-followup.md` — npm vulnerability 5건 (1 moderate, 4 high) 후속 처리. 작업 B에서 `@upstash/*` 추가 후에도 동일하게 5건 (1 moderate, 4 high) 보고됨. 추가 영향 없음
 
-위 두 작업은 1주차 4개 화면 작업 사이 적절한 타이밍에 진행.
+### 다음 세션 stub 정리 (작업 B 잔존)
+- `src/app/api/personas/extract/route.ts`의 stub 응답 `{ ok: true, message: "..." }` → 실제 추출 결과 + 응답 형식 통일(`{ success: true, data: {...} }`)로 교체 (decision_log 결정 4)
+- 동 파일의 conversation 검증 강화 (`trim().length >= N`, decision_log 결정 5)
 
 ---
 

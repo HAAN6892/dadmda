@@ -244,3 +244,61 @@
 - 페르소나 추출 프롬프트 작성 (비식별화 + 페르소나 추출 동시 처리)
 - 페르소나 만들기 화면 UI
 - /api/test/anthropic 임시 라우트 삭제
+
+---
+
+## 2026-05-03 새벽: 작업 A/B 결정 통합 기록 (rate limiter 도입 + API Route 골격)
+
+> 같은 세션 산출물 7개 결정을 단일 엔트리로 묶음. 작업 A는 connection test 임시 라우트 제거 (커밋 77965ed), 작업 B는 페르소나 추출 API Route 골격 + rate limiter (커밋 5b95f7a), docs 별도 커밋 (83970d6).
+
+### 결정 1: Rate limiter 도입 시점 — 정책 #9 활성화
+
+페르소나 추출 API Route 골격 작업에서 정책 #9 (rate limiting)을 활성화. 이전 결정(2026-05-01 OTP API rate limiter 미도입)에 박아둔 "재검토 시점: Anthropic API 통합 시점"이 이번 작업으로 도래. 라우트 자체는 stub이지만 다음 세션에서 Anthropic 호출이 들어가는 즉시 보호 작동하도록 골격에 함께 박음.
+
+### 결정 2: Rate limiter 구현 방식 — Upstash Redis
+
+#### 선택
+`@upstash/ratelimit` + `@upstash/redis` (외부 서비스)
+
+#### 검토한 대안
+- Supabase 테이블 기반: 보일러플레이트 많음 (테이블 + 트랜잭션 + cleanup + RLS), 1주차 임시 안전장치를 비즈니스 DB와 섞기 부적절
+- 메모리 기반: Vercel 서버리스에서 인스턴스마다 카운트 따로 돌아 사실상 무력화 → 즉시 탈락
+
+#### 이유
+- Vercel + Next.js 서버리스에서 사실상 표준
+- 무료 티어 10K command/day로 1주차 충분
+- 폐기 비용 낮음 (env만 빼면 비활성화, 코드는 lazy init이라 throw)
+
+### 결정 3: Rate limit 값 — 10 req / 1분 / 사용자
+
+- 알고리즘: Sliding window (고정 window보다 burst 방어 강함)
+- 키 단위: `user.id`
+- prefix: `@dadmda/ratelimit` (Upstash DB 다른 앱과 충돌 방지, 미래 다른 ratelimit 추가 시 키 충돌 방지)
+- analytics: true (Upstash 콘솔에서 사용 패턴 관찰)
+
+#### 이유
+페르소나 추출은 한 번 추출 후 결과 검토에 분 단위 소요. 정상 사용자가 1분에 10번 이상 호출할 일 없음. 봇/스크립트 차단에 충분. 1주차엔 코드 상수, 미래에 env 분리 가능.
+
+### 결정 4: API Route 응답 형식 일관성 — 다음 세션에서 정리
+
+#### 결정
+stub 응답이 `{ ok: true, message: "..." }`로 다른 응답들의 `{ success, error }` 패턴과 미세하게 어긋남. 이번 세션에서는 **그대로 둠**. 다음 세션에서 실제 추출 로직 추가 시 자연스럽게 정리.
+
+#### 다음 단계
+stub 자리를 실제 추출 결과로 교체할 때 `{ success: true, data: {...} }` 형태로 통일.
+
+### 결정 5: conversation 입력 검증 강화 — 다음 세션에서
+
+#### 결정
+현재 `typeof === "string" && length >= 1`만 체크 (공백만 있어도 통과). 이번 세션에서는 **그대로 둠**.
+
+#### 다음 단계
+`conversation.trim().length >= N` 형태로 강화. 추가로 비식별화 사전 체크 (이미 비식별화된 텍스트가 들어왔는지) 도입 검토.
+
+### 결정 6: 수동 테스트 (4케이스 통합) 스킵
+
+docs상 선택 항목인 4케이스 통합 테스트를 스킵. 근거: PowerShell에서 인증 쿠키 다루는 비용이 높음 (Claude Code 명령 복사할 때마다 쿠키 클립보드 덮어쓰는 사고 반복). 빌드 통과 + 코드 직접 검토로 골격 검증 충분 판단. 다음 세션에서 Anthropic 호출 추가 시 자연스럽게 통합 검증. 위험 평가: 골격 자체에 문제 있으면 다음 세션 첫 호출 시 즉시 발견됨, 위험 낮음.
+
+### 결정 7: docs 커밋 분리 패턴
+
+코드 커밋(`feat:`, `chore:`)과 프롬프트 docs 커밋(`docs:`) 분리. 작업 A의 `chore: connection test 임시 라우트 제거` 커밋도 코드만 들어갔음. 패턴 일관성 + docs untracked 부채 누적 방지. 이번 세션에서는 작업 A/B의 docs 2개를 묶어서 단일 `docs:` 커밋(83970d6)으로 처리.
