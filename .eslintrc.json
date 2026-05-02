@@ -1,0 +1,16 @@
+{
+  "extends": "next/core-web-vitals",
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "next/image",
+            "message": "보안 정책 #12에 따라 next/image 사용 금지. 일반 <img> 태그 또는 Supabase Storage URL 직접 사용."
+          }
+        ]
+      }
+    ]
+  }
+}

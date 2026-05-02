@@ -124,3 +124,29 @@
 **메타 — 같은 날 두 번 뒤집은 결정에서 배운 것**
 - 인프라 회피책(Magic Link 전환)을 적용하기 전, **현장 메일 한 번 더 보내 실측**해야 했다. SMTP fallback 버그가 *항상* 발생한다는 가정이 틀렸다.
 - 다음에 비슷한 SMTP/외부 인프라 이슈 만나면: ① 1차 회피책 코드 작성 전, ② 같은 환경에서 5~10건 샘플 측정해 일관성 패턴 파악, ③ 그 후 회피책 채택 결정.
+
+---
+
+## 2026-05-02: shadcn/ui 도입
+
+### 결정
+- shadcn/ui new-york 스타일 + stone 베이스 컬러 도입
+- 다크모드 라이트만 (1주차 X)
+- Primary 컬러: shadcn 기본값(블랙) 유지
+- 브랜드 컬러 / 뱃지 컬러: 1주차 보류 (홈 화면 작업 시 결정)
+- 9개 컴포넌트 1차 설치: button, input, label, textarea, card, badge, radio-group, slider, select, sonner
+- ESLint `next/image` import 금지 룰 추가 (정책 #12 강제)
+- sonner는 next-themes 의존 제거하고 theme="light" 하드코딩
+- 로그인 페이지 마이그레이션은 별도 작업으로 분리 (docs/2026-05-DD-login-shadcn-migration.md)
+
+### 진행 중 발견 사항
+- 1단계 init 시 shadcn@latest CLI가 Tailwind 4용 oklch + zinc로 박는 사고 발생. 수동으로 stone HSL 변수 + Tailwind 3.4 hsl 래핑 형식으로 정정. 이후 컴포넌트 설치는 shadcn@2.1.8로 버전 고정해서 진행.
+- 프로젝트 루트에 ESLint 설정 파일이 부재했음. .eslintrc.json 신규 생성하면서 next/image 금지 룰 동시 적용.
+- next-themes uninstall 시점에 npm vulnerability 5건(1 moderate, 4 high) 보고. 별도 후속 작업으로 분리 (docs/2026-05-DD-npm-audit-followup.md).
+
+### 이유
+- 다음 작업부터 컴포넌트 다양하게 필요
+- 코드 복사 방식이라 lock-in 없음
+- 브랜드 컬러는 흔들림 패턴(스코프 확장) 회피 위해 보류
+- 로그인 분리는 "한 PR에 한 가지 일" 원칙
+- vulnerability 분리도 같은 원칙 (셋업 커밋과 의존성 보안 처리는 별개 단위)
