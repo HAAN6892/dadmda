@@ -145,3 +145,8 @@ vite.config.ts.timestamp-*
 
 # Claude Code local settings (user-specific)
 .claude/settings.local.json
+
+# Supabase
+supabase/.branches
+supabase/.temp
+**/supabase/.env*

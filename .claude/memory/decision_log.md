@@ -182,3 +182,33 @@
 - 페르소나 추출 프롬프트 작성
 - 페르소나 만들기 화면 UI
 - 본 기능에 사용할 모델 결정 (Haiku 4.5 vs Sonnet 4.6, 비용/품질 트레이드오프)
+
+---
+
+## 2026-05-02: Supabase CLI 셋업
+
+### 결정
+- Migration 관리 방식: 옵션 B (Supabase CLI + git 관리). DB 스키마를 코드의 일부로 취급 → 재현 가능성 + 협업/배포 대비
+- CLI 설치 방법: Scoop (Windows 패키지 매니저) 사용. npm 글로벌 설치는 Supabase 공식 비권장이라 회피
+- supabase/ 폴더를 프로젝트 루트에 생성. config.toml + .gitignore + .temp/ 자동 생성됨
+- IDE 통합(VSCode, IntelliJ workspace settings) 비활성화. 1주차 단순화 + 협업자별 설정 다를 수 있음
+- Project ID와 Database password는 사용자가 PowerShell에 직접 입력. Claude Code 컨텍스트에 노출하지 않음
+- .gitignore: supabase/.gitignore 자동 생성 + 루트 .gitignore에 명시적 의도 표시 3줄 추가 (이중 안전망)
+
+### 진행 중 발견 사항
+- 사용자 환경에 Scoop 미설치 상태 → docs에 Scoop 설치부터 포함 (1단계). PowerShell ExecutionPolicy 변경 필요했음
+- supabase link 시 Database password 프롬프트 미출현. 일부 link 작업은 access token만으로 충분하고 비번은 실제 DB 직접 접근(예: db push, db diff 일부) 시점에 필요. supabase projects list로 LINKED 마크 확인됨
+- config.toml의 [[auth.email]] otp_expiry=3600은 로컬 Supabase 인스턴스용 기본값. 원격 Dashboard에는 600초로 설정되어 있음. 원격 직접 사용 모드라 영향 없음. 미래에 supabase start로 로컬 인스턴스 사용 시 동기화 필요
+- 7단계 검증 명령어를 db pull --schema public --dry-run에서 migration list로 교체. CLI 2.95.4에서 --dry-run 플래그 미지원 발견. migration list가 비파괴 + 메타데이터 조회 + link 정상 + 빈 schema 검증을 동시 만족하므로 더 적합
+
+### 이유
+- Migration이 코드의 일부라는 원칙. git에 없으면 재현 불가능
+- Scoop은 미래 다른 도구(gh CLI, terraform 등) 설치 시에도 활용 가능. 일회성 셋업 비용으로 다회 가치
+- Database password 같은 민감 정보는 사용자 직접 처리 단위로 분리해서 Claude Code 컨텍스트 오염 방지
+- 이중 .gitignore는 supabase/.gitignore가 사고로 삭제되어도 루트 파일이 안전망 역할
+
+### 다음 단계
+- students + personas 테이블 + RLS migration 작성 (supabase/migrations/ 폴더에 SQL 파일)
+- supabase db push로 원격 DB에 적용
+- 페르소나 추출 / 메시지 다듬기 본 기능 작업
+- /api/test/anthropic 임시 라우트 삭제 (다음 작업 시작 시점)
