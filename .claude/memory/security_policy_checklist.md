@@ -95,3 +95,40 @@ echo "[4] next/image:"     && grep -rnE "from ['\"]next/image['\"]|<Image[ />]" 
 echo "[5] auth guard:"     && grep -n "getUser\|redirect" "src/app/(protected)/layout.tsx" 2>/dev/null
 ```
 출력이 [3]/[4]에서 비어있고, [1]/[2]에서 비어있고, [5]에서 `getUser`+`redirect` 검출되면 합격.
+
+---
+
+## API Route 인증 체크 (미들웨어 외 별도)
+
+배경: `src/middleware.ts` matcher에서 `/api/*` 제외했으므로 API Route는 자체적으로 인증 책임. 사고 재발 방지용 점검 절차.
+
+**새 API Route(`src/app/api/**/route.ts`) 작성 시 의무 절차**
+1. 핸들러 헤더 주석 또는 상수로 **인증 필요 여부 명시** (예: `const REQUIRE_AUTH = true;` 또는 `// public: OTP 발송용 비로그인 호출 허용`).
+2. 인증 필요한 경우 핸들러 최상단(입력 검증 직후)에 다음 패턴 삽입:
+   ```ts
+   const supabase = createClient();
+   const { data: { user } } = await supabase.auth.getUser();
+   if (!user) {
+     return NextResponse.json(
+       { success: false, error: "인증이 필요합니다" },
+       { status: 401 },
+     );
+   }
+   ```
+3. 인증 불필요한 경우(공개 API)도 주석으로 의도 명시 — 누락 아님을 분명히.
+
+**점검 명령**
+```bash
+# 모든 API Route 핸들러에서 getUser 호출 또는 "public" 주석이 있는지
+for f in $(find src/app/api -name "route.ts" 2>/dev/null); do
+  echo "=== $f ==="
+  grep -nE "getUser|public:|// public" "$f" || echo "  ⚠️ 인증 명시 없음"
+done
+```
+**합격 기준**
+- 각 `route.ts`에 `getUser()` 호출 또는 `public:` 주석 1건 이상.
+- 인증 필요 API에 `getUser()` 호출 누락 시 ⚠️ — 즉시 사용자 보고.
+
+**현재 상태 (2026-05-01 기준)**
+- `/api/auth/send-otp` — 공개 (로그인 전 호출). 명시: 추후 주석 추가 필요.
+- `/api/auth/verify-otp` — 공개 (로그인 전 호출). 명시: 추후 주석 추가 필요.
