@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getRatelimit } from "@/lib/ratelimit";
+import { extractPersona, ExtractError } from "@/lib/persona/extract";
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,14 +61,42 @@ export async function POST(request: NextRequest) {
         { status: 400, headers: rateLimitHeaders },
       );
     }
+    if (conversation.trim().length < 10) {
+      return NextResponse.json(
+        { success: false, error: "대화 내용은 최소 10자 이상 입력해주세요" },
+        { status: 400, headers: rateLimitHeaders },
+      );
+    }
+    if (conversation.length > 50000) {
+      return NextResponse.json(
+        { success: false, error: "대화 내용은 50,000자 이하로 입력해주세요" },
+        { status: 400, headers: rateLimitHeaders },
+      );
+    }
 
-    return NextResponse.json(
-      {
-        ok: true,
-        message: "페르소나 추출 로직 미구현 (다음 세션)",
-      },
-      { status: 200, headers: rateLimitHeaders },
-    );
+    try {
+      const result = await extractPersona(conversation);
+      return NextResponse.json(
+        { success: true, data: result },
+        { status: 200, headers: rateLimitHeaders },
+      );
+    } catch (err) {
+      if (err instanceof ExtractError) {
+        const status = err.stage === "api" ? 502 : 500;
+        return NextResponse.json(
+          {
+            success: false,
+            error: { stage: err.stage, message: err.message },
+          },
+          { status, headers: rateLimitHeaders },
+        );
+      }
+      console.error("[personas/extract] extract error:", err);
+      return NextResponse.json(
+        { success: false, error: { message: "알 수 없는 오류" } },
+        { status: 500, headers: rateLimitHeaders },
+      );
+    }
   } catch (err) {
     console.error("[personas/extract] unexpected error:", err);
     return NextResponse.json(
