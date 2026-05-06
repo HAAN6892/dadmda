@@ -44,3 +44,6 @@ export const ExtractResponseSchema = z.object({
 });
 
 export type ExtractResponse = z.infer<typeof ExtractResponseSchema>;
+
+// Step 7에서 docs B 6.1 본문대로 재구성 시 흡수 예정 (의존성 가교)
+export type SuccessfulExtractResponse = ExtractResponse;
