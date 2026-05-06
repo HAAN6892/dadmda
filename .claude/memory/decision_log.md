@@ -637,3 +637,34 @@ docs상 선택 항목인 4케이스 통합 테스트를 스킵. 근거: PowerShe
 
 **검증**:
 - docs B 작업 후 수동 테스트: 정상 학부모 대화(통과 기대) + 코딩 질문 입력(거부 기대) + 일상 잡담 입력(거부 기대).
+
+### 결정 21: GRANT 정책 마이그레이션 명시화 (Supabase RLS와 별개)
+
+**일자**: 2026-05-06
+
+**배경**:
+- docs B 4.1 마이그레이션(`20260504000001_recreate_personas_table.sql`)은 RLS 정책만 정의하고 GRANT를 누락.
+- 14절 호출 1(이하린 학부모) INSERT 시 PostgreSQL `permission denied for table personas` 발생. Supabase 대시보드 personas 테이블에도 "API DISABLED" 배지 표시.
+- 즉시 우회: SQL Editor에서 `grant select, insert, update, delete on public.personas to authenticated;` 직접 실행 → 14절 4개 호출 모두 PASS.
+- 우회 실행분이 마이그레이션 파일에 박히지 않아 다른 환경(staging/prod 신규 배포) 재현 불가능. 정리 필요.
+
+**결정**:
+- Supabase 마이그레이션 작성 시 **RLS 정책과 GRANT를 함께 명시**. RLS만으로는 테이블 접근이 열리지 않음을 코드로 박는다.
+- 누락된 GRANT는 별도 보강 마이그레이션(`20260506000001_grant_personas_authenticated.sql`)으로 정리. 기존 마이그레이션 파일 수정은 하지 않음 (이미 적용된 마이그레이션 본문 수정은 history 불일치 위험).
+
+**우회 적용 이력**:
+- 2026-05-06: SQL Editor에서 즉시 GRANT 적용 (14절 호출 1 디버깅 중)
+- 2026-05-06: `20260506000001_grant_personas_authenticated.sql` 마이그레이션 파일 신규 + `supabase db push` 적용. PostgreSQL GRANT는 idempotent라 이미 적용된 권한 재부여는 silent no-op.
+
+**학습**:
+- "RLS 통과 ≠ 테이블 접근 가능". PostgreSQL은 권한 검증을 2단계로 수행: (1) GRANT(테이블 권한) → (2) RLS(row 필터). GRANT 없으면 RLS가 통과 가능해도 테이블 자체 접근에서 막힘.
+- Supabase 대시보드의 "API DISABLED" 배지는 PostgREST가 GRANT 부족으로 해당 테이블의 데이터 API를 노출하지 못하는 상태를 의미. 향후 새 테이블 생성 시 이 배지를 GRANT 누락 신호로 활용.
+
+**반영 위치**:
+- `supabase/migrations/20260506000001_grant_personas_authenticated.sql` (신규)
+
+**연관 docs**:
+- 작업 docs B: `docs/2026-05-04-persona-db-save-B.md`
+
+**미래 확장 여지**:
+- 신규 테이블(conversations, messages 등) 마이그레이션 작성 시 RLS 정책 + GRANT를 동일 파일에 함께 박기. CLAUDE.md 보안 정책 #2에 GRANT 항목 추가 검토.
