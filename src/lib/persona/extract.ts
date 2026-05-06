@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "@/lib/anthropic/client";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { FEW_SHOTS } from "./few-shots";
-import { ExtractResponseSchema, type ExtractResponse } from "./schema";
+import { ExtractLLMResponseSchema, type ExtractLLMResponse } from "./schema";
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 4096;
@@ -21,7 +21,7 @@ export class ExtractError extends Error {
 
 export async function extractPersona(
   conversationText: string,
-): Promise<ExtractResponse> {
+): Promise<ExtractLLMResponse> {
   const messages: Anthropic.MessageParam[] = [];
 
   for (const fewShot of FEW_SHOTS) {
@@ -63,7 +63,7 @@ export async function extractPersona(
     );
   }
 
-  const validation = ExtractResponseSchema.safeParse(parsed);
+  const validation = ExtractLLMResponseSchema.safeParse(parsed);
   if (!validation.success) {
     throw new ExtractError(
       `스키마 검증 실패: ${validation.error.message}`,

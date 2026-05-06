@@ -37,13 +37,38 @@ const PersonaSchema = z.object({
   traits: TraitsSchema,
 });
 
-export const ExtractResponseSchema = z.object({
+// 거부 응답 스키마 (신규)
+export const RejectedResponseSchema = z.object({
+  rejected: z.literal(true),
+  reason: z.string().min(1).max(500),
+});
+
+// 정상 추출 응답 스키마
+export const SuccessfulExtractResponseSchema = z.object({
   anonymized_conversation: z.string().min(1),
   metadata: MetadataSchema,
   persona: PersonaSchema,
 });
 
-export type ExtractResponse = z.infer<typeof ExtractResponseSchema>;
+// LLM 응답 통합 스키마 (둘 중 하나)
+export const ExtractLLMResponseSchema = z.union([
+  RejectedResponseSchema,
+  SuccessfulExtractResponseSchema,
+]);
 
-// Step 7에서 docs B 6.1 본문대로 재구성 시 흡수 예정 (의존성 가교)
-export type SuccessfulExtractResponse = ExtractResponse;
+// API 라우트 응답 스키마 (DB 저장 후 persona_id 포함)
+export const ExtractAPIResponseSchema = z.object({
+  persona_id: z.string().uuid(),
+  anonymized_conversation: z.string().min(1),
+  metadata: MetadataSchema,
+  persona: PersonaSchema,
+});
+
+export type RejectedResponse = z.infer<typeof RejectedResponseSchema>;
+export type SuccessfulExtractResponse = z.infer<typeof SuccessfulExtractResponseSchema>;
+export type ExtractLLMResponse = z.infer<typeof ExtractLLMResponseSchema>;
+export type ExtractAPIResponse = z.infer<typeof ExtractAPIResponseSchema>;
+
+// 기존 호환성 alias
+export type ExtractResponse = SuccessfulExtractResponse;
+export const ExtractResponseSchema = SuccessfulExtractResponseSchema;

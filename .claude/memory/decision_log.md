@@ -574,3 +574,66 @@ docs상 선택 항목인 4케이스 통합 테스트를 스킵. 근거: PowerShe
 
 **연관 docs**:
 - 작업 docs A-2: `docs/2026-05-04-persona-extraction-A-2.md`
+
+### 결정 19: personas 테이블 재생성 + AI 추출 결과 저장 정책
+
+**일자**: 2026-05-04
+
+**배경**:
+- 페르소나 추출 본 동작 검증 완료(docs A 계열).
+- 기존 personas 테이블(20260502000001)은 stub 시점 스키마. AI 추출 결과 저장에 부적합:
+  - speaker_mixed, speaker_classification_note, metadata 컬럼 부재
+  - relationship_type NOT NULL이라 AI 추출의 nullable과 충돌
+  - traits, anonymized_conversation이 nullable이라 AI 추출 결과(항상 존재)와 부적합
+- 1주차 PMF 단계 + personas 테이블 데이터 0건 확인 → DROP + CREATE 채택 (P-C)
+
+**결정**:
+- 기존 테이블 DROP CASCADE + 새 스키마 CREATE
+- 새 컬럼: speaker_mixed, speaker_classification_note, metadata
+- nullable 변경: relationship_type (NOT NULL → nullable + check), traits/anonymized_conversation (NOT NULL로 강화)
+- 기존 정책 유지: soft delete (deleted_at), set_updated_at() 트리거 함수 재사용, idx_personas_user_id_active 인덱스
+- name/summary는 nullable 유지 (1주차에 AI 미생성, 클라이언트에서 사용자 입력)
+- RLS: 모든 작업(SELECT/INSERT/UPDATE/DELETE) 본인 데이터만. service_role bypass 없음.
+- 응답 형식: persona_id를 ExtractResponse 필드와 같은 레벨(flat)로 반환.
+
+**반영 위치**:
+- `supabase/migrations/20260504000001_recreate_personas_table.sql` (신규)
+- `src/lib/persona/save.ts` (신규)
+- `src/app/api/personas/extract/route.ts` (수정 — DB 저장 통합)
+- `src/lib/persona/schema.ts` (수정 — ExtractAPIResponseSchema 추가)
+- 타입 파일 (위치는 Hans 환경에 따라)
+
+**연관 docs**:
+- 작업 docs B: `docs/2026-05-04-persona-db-save-B.md`
+
+**미래 확장 여지**:
+- relationship_type의 colleague/external은 1주차에 미사용. docs A-4 시점에 직장인 케이스 학습 시 활성화.
+- name, summary는 1주차에 NULL. 클라이언트 화면 작업 시 입력 흐름 추가.
+
+### 결정 20: 어뷰징 방지 정책 (거부 응답 + rate limiting)
+
+**일자**: 2026-05-04
+
+**배경**:
+- 인증된 사용자가 conversation 필드에 학부모-교사 대화 외 텍스트(코딩 질문, 일상 잡담 등)를 넣어 Sonnet 4.6을 무료 GPT 대체로 사용할 위험.
+- PMF 단계라 사용자 수 적지만 정책으로 박아둘 가치.
+
+**결정**:
+- **시스템 프롬프트**: "학부모-교사 대화로 인식되지 않으면 거부" 명시. 거부 시 `{rejected: true, reason: "..."}` 형태로 응답.
+- **거부 통과 기준**: 학부모/학생/교사 라벨 OR 학부모 발화 추정 어미 OR 자녀 호칭 OR 학교/학급/교사 호칭 맥락 중 하나 이상.
+- **거부 응답 HTTP**: 400 + `{success: false, error: "..."}`.
+- **Rate limiting**: 사용자당 분당 10회 sliding window (`src/lib/ratelimit.ts` 본 구현 정책 유지). 위반 시 429.
+- **Sanitization**: null bytes 제거, 50줄 이상 연속 빈 줄 정리 (가벼운 가드).
+- **1주차 한정**: 학부모-교사 대화만 통과. 직장인/동료 교사 케이스는 docs A-4로 미룸.
+
+**반영 위치**:
+- `src/lib/persona/system-prompt.ts` (수정 — 어뷰징 거부 케이스 명시)
+- `src/lib/persona/schema.ts` (수정 — RejectedResponseSchema 추가)
+- `src/lib/persona/extract.ts` (수정 — 거부 분기)
+- `src/app/api/personas/extract/route.ts` (수정 — rate limit + sanitization + 거부 시 400)
+
+**연관 docs**:
+- 작업 docs B: `docs/2026-05-04-persona-db-save-B.md`
+
+**검증**:
+- docs B 작업 후 수동 테스트: 정상 학부모 대화(통과 기대) + 코딩 질문 입력(거부 기대) + 일상 잡담 입력(거부 기대).
